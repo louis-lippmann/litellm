@@ -110,14 +110,16 @@ class AnthropicCacheControlHook(CustomPromptManagement):
             else:
                 remaining_points.append(point)
 
+        openai_dialect: Final = AnthropicCacheControlHook._targets_openai_prompt_cache_breakpoint(
+            model, injection_points[0].get("_litellm_provider")
+        )
         # Non-message points (currently Bedrock tool_config) are handled in the
         # provider transform, where each tool_config point appends at most one
         # cachePoint to the tools. That block also counts toward Anthropic's
-        # limit, so reserve a slot for it here to leave room.
-        reserved_blocks: Final = 1 if any(p.get("location") == "tool_config" for p in remaining_points) else 0
-
-        openai_dialect: Final = AnthropicCacheControlHook._targets_openai_prompt_cache_breakpoint(
-            model, injection_points[0].get("_litellm_provider")
+        # limit, so reserve a slot for it here to leave room. OpenAI targets
+        # don't consume a tool_config breakpoint (no-op there), so no reserve.
+        reserved_blocks: Final = (
+            1 if not openai_dialect and any(p.get("location") == "tool_config" for p in remaining_points) else 0
         )
         breakpoints_before: Final = AnthropicCacheControlHook._count_request_cache_breakpoints(processed_messages)
         processed_messages = self._apply_message_injections(
@@ -363,7 +365,9 @@ class AnthropicCacheControlHook(CustomPromptManagement):
             else:
                 remaining_points.append(point)
 
-        reserved_blocks: Final = 1 if any(p.get("location") == "tool_config" for p in remaining_points) else 0
+        reserved_blocks: Final = (
+            1 if not openai_dialect and any(p.get("location") == "tool_config" for p in remaining_points) else 0
+        )
         max_blocks: Final = MAX_CACHE_CONTROL_BLOCKS - reserved_blocks
 
         message_blocks: Final = AnthropicCacheControlHook._count_request_cache_breakpoints(processed_messages)

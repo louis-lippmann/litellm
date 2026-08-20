@@ -1281,6 +1281,48 @@ def test_cache_control_hook_reserves_slot_for_tool_config_point():
     ]
 
 
+def test_cache_control_hook_openai_dialect_does_not_reserve_tool_config_slot():
+    """OpenAI targets no-op on tool_config, so the slot must not be reserved.
+
+    A shared deployment config that lists 4 message points plus a tool_config
+    point (for the Bedrock target) must still emit 4 prompt_cache_breakpoint
+    markers on the OpenAI target: the tool_config point is unused there.
+    """
+    hook = AnthropicCacheControlHook()
+
+    messages: List[AllMessageValues] = [{"role": "user", "content": f"turn {i}"} for i in range(4)]
+
+    _, processed, non_default_params = hook.get_chat_completion_prompt(
+        model="openai/gpt-5.6",
+        messages=messages,
+        non_default_params={
+            "cache_control_injection_points": [
+                {"location": "message", "index": 0},
+                {"location": "message", "index": 1},
+                {"location": "message", "index": 2},
+                {"location": "message", "index": 3},
+                {"location": "tool_config"},
+            ]
+        },
+        prompt_id=None,
+        prompt_variables=None,
+        dynamic_callback_params={},
+    )
+
+    marker_count = sum(
+        1
+        for msg in processed
+        if isinstance(msg.get("content"), list)
+        for block in msg["content"]
+        if isinstance(block, dict) and block.get("prompt_cache_breakpoint") is not None
+    )
+    assert marker_count == 4
+    assert non_default_params["prompt_cache_options"] == {"mode": "explicit"}
+    assert non_default_params["cache_control_injection_points"] == [
+        {"location": "tool_config", "_litellm_judged": True}
+    ]
+
+
 @pytest.mark.asyncio
 async def test_cache_control_hook_bedrock_payload_caps_with_tool_config_point():
     """End-to-end: message + tool_config injection must not exceed 4 cachePoints."""
