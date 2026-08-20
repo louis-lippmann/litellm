@@ -673,10 +673,17 @@ def _finish_login(base_url: str, api_key: str, config_claude: bool) -> None:
 
 
 def _pkce_login(base_url: str, config_claude: bool) -> None:
-    credential: Final = run_pkce_login(base_url, requests.Session(), echo=click.echo)
+    http: Final = requests.Session()
+    credential: Final = run_pkce_login(base_url, http, echo=click.echo)
     if isinstance(credential, PkceFailure):
         click.echo(f"Authentication failed: {credential.reason}")
         return
+    previous: Final = load_token()
+    revocation: Final = revoke_stored_credential(previous, http) if previous is not None else None
+    if revocation is not None:
+        click.echo(
+            f"Could not revoke the previous refresh token on the proxy ({revocation.reason}); it expires on its own."
+        )
     save_token(pkce_token_record(base_url, credential))
     _finish_login(base_url, credential.access_token, config_claude)
 
